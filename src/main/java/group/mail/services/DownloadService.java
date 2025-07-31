@@ -99,7 +99,6 @@ public class DownloadService {
             log.error("Download failed, cleaning up temp file: {}", tempFile, e);
             Files.deleteIfExists(tempFile);
             throw e;
-        } finally {
         }
     }
 
