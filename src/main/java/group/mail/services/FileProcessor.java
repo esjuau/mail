@@ -1,9 +1,7 @@
 package group.mail.services;
 
 import group.mail.models.IngestStatus;
-import group.mail.models.IngestionMetricsData;
 import group.mail.utils.EmailExtractor;
-import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -23,12 +21,8 @@ public class FileProcessor {
     private static final int THRESHOLD = 50;
     private final IngestStatus status;
 
-    @Getter
-    private final IngestionMetricsData ingestionMetricsData;
-
     public FileProcessor(IngestStatus status) {
         this.status = status;
-        this.ingestionMetricsData = new IngestionMetricsData();
     }
 
     public void processRootDirectory(Path rootDir) {
@@ -92,8 +86,7 @@ public class FileProcessor {
 
     private void processSingleFile(Path path) {
         Optional<String> from = EmailExtractor.extractSenderEmail(path);
-        from.ifPresentOrElse(ingestionMetricsData::recordFile,
-                ingestionMetricsData::incrementProcessedFileCount);
+        from.ifPresentOrElse(status::recordFile,
+                status::incrementProcessedFileCount);
     }
-
 }
