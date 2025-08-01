@@ -2,17 +2,12 @@ package group.mail.services;
 
 import group.mail.models.IngestStatus;
 import group.mail.models.IngestionMetricsData;
+import group.mail.utils.EmailExtractor;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.james.mime4j.MimeException;
-import org.apache.james.mime4j.dom.Message;
-import org.apache.james.mime4j.dom.address.Mailbox;
-import org.apache.james.mime4j.dom.address.MailboxList;
-import org.apache.james.mime4j.message.DefaultMessageBuilder;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -26,20 +21,17 @@ import java.util.stream.Stream;
 public class FileProcessor {
 
     private static final int THRESHOLD = 50;
-
-    @Getter
     private final IngestStatus status;
 
     @Getter
     private final IngestionMetricsData ingestionMetricsData;
 
-    public FileProcessor() {
-        this.status = new IngestStatus();
+    public FileProcessor(IngestStatus status) {
+        this.status = status;
         this.ingestionMetricsData = new IngestionMetricsData();
     }
 
     public void processRootDirectory(Path rootDir) {
-        status.start();
         log.info("Starting processing job for root: {}. Status tracking started.", rootDir);
         try {
             try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
@@ -48,11 +40,10 @@ public class FileProcessor {
                 scope.throwIfFailed();
             }
         } catch (Exception e) {
+            status.fail(e);
             log.error("Processing failed for root {}: {}", rootDir, e.getMessage());
         } finally {
-            status.finish();
-            log.info("Processing job finished for root: {}. Total duration: {}ms",
-                    rootDir, status.getDuration().toMillis());
+            log.info("Processing job finished for root");
         }
     }
 
@@ -100,29 +91,9 @@ public class FileProcessor {
     }
 
     private void processSingleFile(Path path) {
-        try {
-            Optional<String> from = extractEmailFrom(path);
-            from.ifPresentOrElse(ingestionMetricsData::recordFile,
-                    ingestionMetricsData::incrementProcessedFileCount);
-
-            status.fileProcessed();
-        } catch (IOException | MimeException e) {
-            log.warn("Failed to process file {}: {}", path, e.getMessage());
-        }
+        Optional<String> from = EmailExtractor.extractSenderEmail(path);
+        from.ifPresentOrElse(ingestionMetricsData::recordFile,
+                ingestionMetricsData::incrementProcessedFileCount);
     }
 
-    public Optional<String> extractEmailFrom(Path path) throws IOException, MimeException {
-        try (InputStream in = Files.newInputStream(path)) {
-            DefaultMessageBuilder builder = new DefaultMessageBuilder();
-            Message message = builder.parseMessage(in);
-            MailboxList fromMailboxes = message.getFrom();
-            if (fromMailboxes != null && !fromMailboxes.isEmpty()) {
-                Mailbox mailbox = fromMailboxes.getFirst();
-                if (mailbox != null) {
-                    return Optional.of(mailbox.getAddress());
-                }
-            }
-        }
-        return Optional.empty();
-    }
 }

@@ -1,5 +1,7 @@
 package group.mail.services;
 
+import group.mail.models.IngestStatus;
+import group.mail.utils.FileUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
@@ -8,9 +10,10 @@ import org.springframework.stereotype.Service;
 
 import java.io.*;
 import java.nio.file.*;
-import java.nio.file.attribute.BasicFileAttributes;
 import java.util.concurrent.CompletableFuture;
 import java.util.zip.GZIPInputStream;
+
+import static group.mail.models.IngestStatus.IngestionPhase.EXTRACTING;
 
 /**
  * Service responsible for extracting a .tar.gz dataset file into a temp directory.
@@ -20,6 +23,11 @@ import java.util.zip.GZIPInputStream;
 public class ExtractionService {
 
     private static final int BUFFER_SIZE = 64 * 1024;
+    private final IngestStatus status;
+
+    public ExtractionService(IngestStatus status) {
+        this.status = status;
+    }
 
     /**
      * Asynchronously extracts the given .tar.gz file into a uniquely named temp directory.
@@ -28,11 +36,13 @@ public class ExtractionService {
      */
     @Async
     public CompletableFuture<Path> extractToTempDirectoryAsync(Path tarGzFile) {
+        status.setPhase(EXTRACTING);
         return CompletableFuture.supplyAsync(() -> {
             try {
                 return extractToTempDirectory(tarGzFile);
             } catch (IOException e) {
                 log.error("Failed to extract tar.gz file", e);
+                status.fail(e);
                 throw new RuntimeException("Extraction failed", e);
             }
         });
@@ -47,7 +57,6 @@ public class ExtractionService {
     public Path extractToTempDirectory(Path tarGzFile) throws IOException {
         Path extractDir = Files.createTempDirectory("dataset-extract-");
         log.info("Starting extraction of {} to directory {}", tarGzFile, extractDir);
-
         try (InputStream fis = Files.newInputStream(tarGzFile);
              BufferedInputStream bis = new BufferedInputStream(fis, BUFFER_SIZE);
              GZIPInputStream gzis = new GZIPInputStream(bis);
@@ -75,9 +84,10 @@ public class ExtractionService {
 
         } catch (Exception e) {
             log.error("Extraction failed, cleaning up directory: {}", extractDir, e);
-            cleanupDirectory(extractDir);
+            status.fail(e);
+            FileUtils.deleteRecursively(extractDir);
             throw new IOException("Failed to extract tar.gz file", e);
-        }
+        } 
     }
 
     private void extractSingleFile(Path targetPath, TarArchiveInputStream tais) throws IOException {
@@ -91,38 +101,7 @@ public class ExtractionService {
         }
     }
 
-    public void cleanupDirectory(Path directory) {
-        if (directory == null || Files.notExists(directory)) return;
-        try {
-            Files.walkFileTree(directory, new SimpleFileVisitor<>() {
-                @Override
-                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
-                    try {
-                        Files.deleteIfExists(file);
-                    } catch (IOException e) {
-                        log.warn("failed to delete file {}: {}", file, e.toString());
-                    }
-                    return FileVisitResult.CONTINUE;
-                }
 
-                @Override
-                public FileVisitResult postVisitDirectory(Path dir, IOException exc) {
-                    if (exc != null) {
-                        log.error("error visiting directory {}: {}", dir, exc.toString());
-                    }
-                    try {
-                        Files.deleteIfExists(dir);
-                    } catch (IOException e) {
-                        log.warn("failed to delete directory {}: {}", dir, e.toString());
-                    }
-                    return FileVisitResult.CONTINUE;
-                }
-            });
-            log.debug("Cleaned up directory {}", directory);
-        } catch (IOException e) {
-            log.error("Failed to cleanup directory {}", directory, e);
-        }
-    }
 
 
 

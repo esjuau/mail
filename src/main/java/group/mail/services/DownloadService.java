@@ -1,5 +1,6 @@
 package group.mail.services;
 
+import group.mail.models.IngestStatus;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.web.client.RestTemplateBuilder;
@@ -16,6 +17,8 @@ import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 
+import static group.mail.models.IngestStatus.IngestionPhase.DOWNLOADING;
+
 /**
  * Service responsible for downloading a .tar.gz dataset from a given URL into a temp file,
  * with progress tracking.
@@ -27,9 +30,12 @@ public class DownloadService {
     private static final int BUFFER_SIZE = 64 * 1024; // 64 KB
 
     private final RestTemplate restTemplate;
+    private final IngestStatus status;
 
     public DownloadService(RestTemplateBuilder builder,
-                           @Value("${file.download.timeout.hours:2}") int timeoutHours) {
+                           @Value("${file.download.timeout.hours:2}") int timeoutHours,
+                           IngestStatus status) {
+        this.status = status;
         this.restTemplate = builder
                 .connectTimeout(Duration.ofHours(timeoutHours))
                 .build();
@@ -38,8 +44,10 @@ public class DownloadService {
     @Async
     public CompletableFuture<Path> downloadToTempAsync(String url) {
         try {
+            status.setPhase(DOWNLOADING);
             return CompletableFuture.completedFuture(downloadToTemp(url));
         } catch (IOException e) {
+            status.fail(e);
             log.error("Failed to download file from {}", url, e);
             throw new CompletionException(e);
         }
