@@ -3,7 +3,6 @@ package group.mail.services;
 import group.mail.models.IngestStatus;
 import lombok.SneakyThrows;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 
 import java.nio.file.Path;
 import java.util.concurrent.CompletableFuture;
@@ -11,7 +10,7 @@ import java.util.concurrent.CompletableFuture;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.*;
 
-class DatasetIngestionServiceTest {
+class DatasetIngestionServiceTests {
 
     @Test
     @SneakyThrows
