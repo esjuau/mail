@@ -2,91 +2,129 @@ package group.mail.services;
 
 import group.mail.models.IngestStatus;
 import group.mail.utils.EmailExtractor;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.StructuredTaskScope;
-import java.util.stream.Collectors;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.stream.Stream;
 
 @Slf4j
 @Component
+@RequiredArgsConstructor
 public class FileProcessor {
 
-    private static final int THRESHOLD = 50;
+    private static final int SEQUENTIAL_THRESHOLD = 100;
     private final IngestStatus status;
-
-    public FileProcessor(IngestStatus status) {
-        this.status = status;
-    }
 
     public void processRootDirectory(Path rootDir) {
         log.info("Starting processing job for root: {}. Status tracking started.", rootDir);
         try {
-            try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
-                scope.fork(() -> processPath(rootDir));
-                scope.join();
-                scope.throwIfFailed();
-            }
+            processPath(rootDir);
         } catch (Exception e) {
             status.fail(e);
-            log.error("Processing failed for root {}: {}", rootDir, e.getMessage());
+            log.error("Processing failed for root {}: {}", rootDir, e.getMessage(), e);
         } finally {
             log.info("Processing job finished for root");
         }
     }
 
-    private Void processPath(Path path) throws Exception {
-        if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
+    private void processPath(Path path) throws IOException {
+        if (Thread.currentThread().isInterrupted()) {
+            throw new IOException("Thread was interrupted");
+        }
 
         if (Files.isRegularFile(path)) {
             processSingleFile(path);
         } else if (Files.isDirectory(path)) {
-            List<Path> children;
-            try (Stream<Path> fileStream = Files.list(path)) {
-                children = fileStream.collect(Collectors.toList());
-            } catch (IOException e) {
-                log.warn("Failed to list directory {}: {}", path, e.getMessage());
-                return null;
-            }
+            processDirectory(path);
+        }
+    }
 
-            if (children.size() <= THRESHOLD) {
-                for (Path child : children) {
-                    if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
-                    processPath(child);
-                }
+    private void processDirectory(Path dir) throws IOException {
+        List<Path> children;
+        try (Stream<Path> fileStream = Files.list(dir)) {
+            children = fileStream.toList();
+        } catch (IOException e) {
+            log.warn("Failed to list directory {}: {}", dir, e.getMessage());
+            return;
+        }
+
+        if (children.isEmpty()) {
+            return;
+        }
+
+        if (children.size() <= SEQUENTIAL_THRESHOLD) {
+            for (Path child : children) {
+                processPath(child);
+            }
+        } else {
+            processDirectoryConcurrently(children);
+        }
+    }
+
+    /**
+     * Manages concurrent processing of a list of paths using CompletableFuture
+     * with a virtual-thread-per-task executor. Futures are handled within this method.
+     */
+    private void processDirectoryConcurrently(List<Path> paths) {
+        try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            int mid = paths.size() / 2;
+            List<Path> firstHalf = paths.subList(0, mid);
+            List<Path> secondHalf = paths.subList(mid, paths.size());
+
+            CompletableFuture<Void> future1 = createChunkProcessingFuture(firstHalf, executor);
+            CompletableFuture<Void> future2 = createChunkProcessingFuture(secondHalf, executor);
+
+            CompletableFuture.allOf(future1, future2).join();
+
+        } catch (CompletionException e) {
+            if (e.getCause() instanceof RuntimeException) {
+                throw (RuntimeException) e.getCause();
             } else {
-                int mid = children.size() / 2;
-                List<Path> first = children.subList(0, mid);
-                List<Path> second = children.subList(mid, children.size());
-
-                try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
-                    scope.fork(() -> processChunk(first));
-                    scope.fork(() -> processChunk(second));
-                    scope.join();
-                    scope.throwIfFailed();
-                }
+                throw new RuntimeException(e.getCause());
             }
         }
-        return null;
     }
 
-    private Void processChunk(List<Path> chunk) throws Exception {
-        for (Path p : chunk) {
-            if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
-            processPath(p);
-        }
-        return null;
+    /**
+     * Creates a CompletableFuture that processes a "chunk" (list of paths)
+     * on the given ExecutorService.
+     */
+    private CompletableFuture<Void> createChunkProcessingFuture(List<Path> chunk, ExecutorService executor) {
+        return CompletableFuture.runAsync(() -> {
+            try {
+                for (Path path : chunk) {
+                    processPath(path);
+                }
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+        }, executor);
     }
 
+    /**
+     * Processes a single file to extract sender information.
+     */
     private void processSingleFile(Path path) {
-        Optional<String> from = EmailExtractor.extractSenderEmail(path);
-        from.ifPresentOrElse(status::recordFile,
-                status::incrementProcessedFileCount);
+        try {
+            Optional<String> from = EmailExtractor.extractSenderEmail(path);
+            from.ifPresentOrElse(
+                    status::recordFile,
+                    status::incrementProcessedFileCount
+            );
+        } catch (Exception e) {
+            log.warn("Failed to parse file {}: {}", path, e.getMessage());
+            status.incrementProcessedFileCount(); // Count it even if it fails to parse
+        }
     }
 }
