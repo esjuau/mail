@@ -27,12 +27,12 @@ public class DatasetIngestionService {
                                    ExtractionService extractionService,
                                    FileProcessor fileProcessor,
                                    IngestStatus status,
-                                   @Value("${dataset.local.path}") String datasetUrl) {
+                                   @Value("${dataset.remote.url}") String remoteUrl) {
         this.downloadService = downloadService;
         this.extractionService = extractionService;
         this.fileProcessor = fileProcessor;
         this.status = status;
-        this.datasetUrl = datasetUrl;
+        this.datasetUrl = remoteUrl;
     }
 
     /**
