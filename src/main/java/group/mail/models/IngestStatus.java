@@ -1,5 +1,7 @@
 package group.mail.models;
 
+import org.springframework.stereotype.Component;
+
 import java.time.Duration;
 import java.time.Instant;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -10,39 +12,61 @@ import java.util.concurrent.atomic.AtomicReference;
  * A thread-safe, application-scoped singleton that holds the real-time status 
  * of the data ingestion process.
  */
+@Component
 public class IngestStatus {
+
+    /**
+     * Represents the distinct phases of the ingestion pipeline.
+     */
+    public enum IngestionPhase {
+        IDLE,
+        DOWNLOADING,
+        EXTRACTING,
+        PROCESSING,
+        CLEANING_UP,
+        COMPLETED,
+        FAILED
+    }
 
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicLong processedFileCount = new AtomicLong(0);
     private final AtomicReference<Instant> startTime = new AtomicReference<>();
     private final AtomicReference<Instant> endTime = new AtomicReference<>();
+    private final AtomicReference<IngestionPhase> currentPhase = new AtomicReference<>(IngestionPhase.IDLE);
+    private final AtomicReference<String> errorMessage = new AtomicReference<>();
 
-    /**
-     * Resets the status and marks the ingestion process as started.
-     * This should be called once at the beginning of the ingestion pipeline.
-     */
     public void start() {
         processedFileCount.set(0);
         endTime.set(null);
+        errorMessage.set(null);
         startTime.set(Instant.now());
+        currentPhase.set(IngestionPhase.IDLE);
         running.set(true);
     }
-
-    /**
-     * Marks the ingestion process as finished.
-     * This should be called once at the very end of the pipeline (in success or failure).
-     */
+    
     public void finish() {
         endTime.set(Instant.now());
+        setPhase(IngestionPhase.COMPLETED);
         running.set(false);
     }
 
-    /**
-     * Atomically increments the counter for processed files.
-     * This method is designed to be called concurrently from multiple worker threads.
-     */
+    public void fail(Throwable ex) {
+        endTime.set(Instant.now());
+        errorMessage.set(ex.getMessage());
+        setPhase(IngestionPhase.FAILED);
+        running.set(false);
+    }
+
     public void fileProcessed() {
         processedFileCount.incrementAndGet();
+    }
+    
+    public void setPhase(IngestionPhase phase) {
+        this.currentPhase.set(phase);
+    }
+    
+    public IngestionPhase getPhase() {
+        return currentPhase.get();
     }
 
     public boolean isRunning() {
@@ -51,6 +75,10 @@ public class IngestStatus {
 
     public long getProcessedFileCount() {
         return processedFileCount.get();
+    }
+    
+    public String getErrorMessage() {
+        return errorMessage.get();
     }
 
     public Instant getStartTime() {
@@ -61,11 +89,6 @@ public class IngestStatus {
         return endTime.get();
     }
 
-    /**
-     * Calculates the duration of the ingestion process.
-     * @return The duration between start and end time. If the process is still running,
-     * returns duration between start time and now. If not started, returns zero.
-     */
     public Duration getDuration() {
         Instant start = startTime.get();
         if (start == null) {
