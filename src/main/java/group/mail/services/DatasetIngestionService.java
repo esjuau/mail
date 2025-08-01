@@ -4,6 +4,7 @@ import group.mail.models.IngestStatus;
 import group.mail.utils.FileUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -14,21 +15,31 @@ import java.util.concurrent.CompletionException;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class DatasetIngestionService {
-
-    private static final String DATASET_URL = "https://www.cs.cmu.edu/~enron/enron_mail_20150507.tar.gz";
 
     private final DownloadService downloadService;
     private final ExtractionService extractionService;
     private final FileProcessor fileProcessor;
     private final IngestStatus status;
+    private final String datasetUrl;
+
+    public DatasetIngestionService(DownloadService downloadService,
+                                   ExtractionService extractionService,
+                                   FileProcessor fileProcessor,
+                                   IngestStatus status,
+                                   @Value("${dataset.local.path}") String datasetUrl) {
+        this.downloadService = downloadService;
+        this.extractionService = extractionService;
+        this.fileProcessor = fileProcessor;
+        this.status = status;
+        this.datasetUrl = datasetUrl;
+    }
 
     /**
      * Initiates the entire data ingestion process.
+     * Throws an IllegalStateException if the process is already running.
      */
-
-    public CompletableFuture<Void> startIngestion() {
+    public void startIngestion() {
         if (status.isRunning()) {
             String errorMessage = "Ingestion process is already running. Please wait for it to complete.";
             log.warn(errorMessage);
@@ -37,7 +48,7 @@ public class DatasetIngestionService {
 
         initializeIngestionState();
 
-        return runIngestionPipeline()
+        runIngestionPipeline()
                 .whenComplete(this::finalizeIngestionStatus);
     }
 
@@ -47,7 +58,6 @@ public class DatasetIngestionService {
     private void initializeIngestionState() {
         log.info("Starting ingestion pipeline");
         status.start();
-        fileProcessor.getIngestionMetricsData().reset();
     }
 
     /**
@@ -55,7 +65,7 @@ public class DatasetIngestionService {
      * Stages: Download -> Extract & Process -> Cleanup.
      */
     private CompletableFuture<Void> runIngestionPipeline() {
-        return downloadService.downloadToTempAsync(DATASET_URL)
+        return downloadService.downloadToTempAsync(datasetUrl)
                 .thenCompose(this::extractProcessAndCleanup);
     }
 
