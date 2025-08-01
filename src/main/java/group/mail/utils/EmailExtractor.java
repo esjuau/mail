@@ -23,7 +23,7 @@ public final class EmailExtractor {
 
     public EmailExtractor() {}
 
-    public Optional<String> extractSenderEmail(Path path) {
+    public static Optional<String> extractSenderEmail(Path path) {
         // try light way first
         try (BufferedReader br = Files.newBufferedReader(path)) {
             String line;
