@@ -1,21 +1,23 @@
 package group.mail.services;
 
 import group.mail.models.IngestStatus;
-import lombok.SneakyThrows;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 
 import java.nio.file.Path;
 import java.util.concurrent.CompletableFuture;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import static java.util.concurrent.TimeUnit.SECONDS;
+import static org.awaitility.Awaitility.await;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 class DatasetIngestionServiceTests {
 
     @Test
-    @SneakyThrows
     void startIngestion_runsPipelineAndCleansUp() {
 
+        // init
         var downloadService = mock(DownloadService.class);
         var extractionService = mock(ExtractionService.class);
         var fileProcessor = mock(FileProcessor.class);
@@ -36,19 +38,20 @@ class DatasetIngestionServiceTests {
                 downloadService, extractionService, fileProcessor, status, "http://foo"
         );
 
+        // start the pipeline
         service.startIngestion();
 
-        Thread.sleep(200);
+        await().atMost(5, SECONDS).untilAsserted(() -> verify(status).finish());
 
-        // check that the below methods get called
-        verify(downloadService).downloadToTempAsync(any());
-        verify(extractionService).extractToTempDirectoryAsync(downloaded);
-        verify(fileProcessor).processRootDirectory(extracted);
+        // Check that the steps are run in the expected order
+        InOrder inOrder = inOrder(status, downloadService, extractionService, fileProcessor);
 
-        verify(status).start();
-        verify(status).setPhase(IngestStatus.IngestionPhase.PROCESSING);
-        verify(status).setPhase(IngestStatus.IngestionPhase.CLEANING_UP);
-        verify(status).finish();
-
+        inOrder.verify(status).start();
+        inOrder.verify(downloadService).downloadToTempAsync(any());
+        inOrder.verify(extractionService).extractToTempDirectoryAsync(downloaded);
+        inOrder.verify(status).setPhase(IngestStatus.IngestionPhase.PROCESSING);
+        inOrder.verify(fileProcessor).processRootDirectory(extracted);
+        inOrder.verify(status).setPhase(IngestStatus.IngestionPhase.CLEANING_UP);
+        inOrder.verify(status).finish();
     }
 }
