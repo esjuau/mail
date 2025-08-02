@@ -5,7 +5,6 @@ import group.mail.utils.FileUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 import java.io.*;
@@ -34,7 +33,7 @@ public class ExtractionService {
      * @param tarGzFile Path to the .tar.gz file
      * @return CompletableFuture that resolves to the path of the created extraction directory
      */
-    @Async
+
     public CompletableFuture<Path> extractToTempDirectoryAsync(Path tarGzFile) {
         status.setPhase(EXTRACTING);
         return CompletableFuture.supplyAsync(() -> {
