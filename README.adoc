@@ -1,0 +1,62 @@
+= Enron Data Processor
+
+== About
+
+This web application is a high-performance processor for the Enron email dataset. It initiates a batch job to ingest the data, computes key metrics, and exposes the results via a REST API.
+
+A key design consideration is resource management. The application is intentionally designed to prevent multiple concurrent batch jobs from running. This approach ensures stability and avoids exhausting system resources like memory and disk I/O during a long-running process.
+
+The project demonstrates modern concurrent programming techniques in Java, with a strong emphasis on robust testing. The core processing logic leverages **Project Loom's virtual threads** to efficiently handle the large number of I/O-bound tasks, making them an ideal choice for this workload.
+The application can use local Enron
+
+== Running the Application
+
+There are two primary ways to run the application.
+
+=== With Maven
+
+This is the simplest way to start the application:
+
+----
+mvn spring-boot:run
+----
+
+=== With Docker
+
+First, build the OCI compliant image by running
+----
+mvn spring-boot:build-image
+----
+
+Then, start the container by running
+
+----
+docker run --rm -p 8080:8080 mail:0.0.1-SNAPSHOT
+----
+
+More about the image building you can read in the _HELP.md_ file.
+
+== API Documentation
+
+API documentation is available here:
+
+http://localhost:8080/swagger-ui/index.html
+
+This endpoint lets the user easily run the requests.
+
+== About fine-tuning
+
+The file _application.properties_ enables
+using a local copy of the Enron data file
+
+_src/main/resources/enron_mail_20150507.tar.gz_
+
+if present and then setting
+----
+dataset.local.path=classpath:enron_mail_20150507.tar.gz
+----
+Furthermore, the data processing uses the divide and conquer parameter
+----
+sequential.threshold=10
+----
+which controls how many email files the virtual thread at most handles.
