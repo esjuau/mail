@@ -4,6 +4,7 @@ import group.mail.models.IngestStatus;
 import group.mail.utils.EmailExtractor;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -23,7 +24,8 @@ import java.util.stream.Stream;
 @RequiredArgsConstructor
 public class FileProcessor {
 
-    private static final int SEQUENTIAL_THRESHOLD = 100;
+    @Value("${sequential.threshold:10}")
+    private int SEQUENTIAL_THRESHOLD;
     private final IngestStatus status;
 
     public void processRootDirectory(Path rootDir) {
