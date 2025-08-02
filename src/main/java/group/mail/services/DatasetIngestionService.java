@@ -11,6 +11,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.TimeUnit;
 
 @Slf4j
 @Service
@@ -48,6 +49,7 @@ public class DatasetIngestionService {
         initializeIngestionState();
 
         runIngestionPipeline()
+                .orTimeout(3, TimeUnit.HOURS)
                 .whenComplete(this::finalizeIngestionStatus);
     }
 
